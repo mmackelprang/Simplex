@@ -183,6 +183,94 @@ namespace Simplex3D
         }
     }
     
+    // Delegate for flexible error function that can be customized for different fitting scenarios
+    public delegate double ErrorFunction(double[] parameters);
+    
+    // Helper class for fitting 2D data to various functions
+    public static class FittingHelpers
+    {
+        // Fit X,Y data to a linear function: y = a*x + b
+        public static double[] FitLinear(List<(double x, double y)> data)
+        {
+            var optimizer = new SimplexOptimizer();
+            
+            ErrorFunction errorFunc = (parameters) =>
+            {
+                double a = parameters[0];  // slope
+                double b = parameters[1];  // intercept
+                
+                double totalError = 0;
+                foreach (var point in data)
+                {
+                    double predicted = a * point.x + b;
+                    double error = predicted - point.y;
+                    totalError += error * error;
+                }
+                return Math.Sqrt(totalError / data.Count);
+            };
+            
+            return optimizer.Optimize(errorFunc, 2);  // 2 parameters: slope and intercept
+        }
+        
+        // Fit X,Y data to a polynomial: y = a0 + a1*x + a2*x^2 + ... + an*x^n
+        public static double[] FitPolynomial(List<(double x, double y)> data, int polynomialOrder)
+        {
+            var optimizer = new SimplexOptimizer();
+            
+            ErrorFunction errorFunc = (parameters) =>
+            {
+                double totalError = 0;
+                foreach (var point in data)
+                {
+                    double predicted = 0;
+                    for (int i = 0; i < parameters.Length; i++)
+                    {
+                        predicted += parameters[i] * Math.Pow(point.x, i);
+                    }
+                    double error = predicted - point.y;
+                    totalError += error * error;
+                }
+                return Math.Sqrt(totalError / data.Count);
+            };
+            
+            return optimizer.Optimize(errorFunc, polynomialOrder + 1);  // n+1 parameters for nth order polynomial
+        }
+        
+        // Fit 3D points with translation only (no rotation)
+        public static Vector3 FitTranslationOnly(List<Vector3> sourcePoints, List<Vector3> targetPoints)
+        {
+            var optimizer = new SimplexOptimizer();
+            
+            ErrorFunction errorFunc = (parameters) =>
+            {
+                var translation = new Vector3((float)parameters[0], (float)parameters[1], (float)parameters[2]);
+                
+                double totalError = 0;
+                foreach (var source in sourcePoints)
+                {
+                    var transformed = source + translation;
+                    
+                    // Find nearest target point
+                    float minDistance = float.MaxValue;
+                    foreach (var target in targetPoints)
+                    {
+                        float distance = Vector3.Distance(transformed, target);
+                        if (distance < minDistance)
+                        {
+                            minDistance = distance;
+                        }
+                    }
+                    
+                    totalError += minDistance * minDistance;
+                }
+                return Math.Sqrt(totalError / sourcePoints.Count);
+            };
+            
+            var result = optimizer.Optimize(errorFunc, 3);  // 3 parameters: tx, ty, tz
+            return new Vector3((float)result[0], (float)result[1], (float)result[2]);
+        }
+    }
+    
     public class SimplexOptimizer
     {
         private const double ALPHA = 1.0;    // Reflection coefficient
@@ -192,10 +280,10 @@ namespace Simplex3D
         private const double TOLERANCE = 1e-8;
         private const int MAX_ITERATIONS = 1000;
         
-        public OptimizationResult OptimizeRegistration(List<Vector3> sourcePoints, List<Vector3> targetPoints)
+        public double[] Optimize(ErrorFunction errorFunction, int parameterCount, double initialStep = 0.1)
         {
-            // Initialize simplex with 7 vertices for 6D optimization (3 translation + 3 rotation)
-            var simplex = InitializeSimplex();
+            // Initialize simplex with parameterCount+1 vertices for parameterCount-dimensional optimization
+            var simplex = InitializeSimplex(parameterCount, initialStep);
             
             for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++)
             {
@@ -203,7 +291,7 @@ namespace Simplex3D
                 var errors = new double[simplex.Length];
                 for (int i = 0; i < simplex.Length; i++)
                 {
-                    errors[i] = EvaluateError(simplex[i], sourcePoints, targetPoints);
+                    errors[i] = errorFunction(simplex[i]);
                 }
                 
                 // Find best, worst, and second worst
@@ -225,35 +313,35 @@ namespace Simplex3D
                 // Check convergence
                 if (Math.Abs(errors[worstIdx] - errors[bestIdx]) < TOLERANCE)
                 {
-                    return CreateResult(simplex[bestIdx], errors[bestIdx], iteration + 1);
+                    return simplex[bestIdx];
                 }
                 
                 // Compute centroid (excluding worst point)
-                var centroid = new double[6];
+                var centroid = new double[parameterCount];
                 for (int i = 0; i < simplex.Length; i++)
                 {
                     if (i != worstIdx)
                     {
-                        for (int j = 0; j < 6; j++)
+                        for (int j = 0; j < parameterCount; j++)
                         {
                             centroid[j] += simplex[i][j];
                         }
                     }
                 }
-                for (int j = 0; j < 6; j++)
+                for (int j = 0; j < parameterCount; j++)
                 {
                     centroid[j] /= (simplex.Length - 1);
                 }
                 
                 // Reflection
                 var reflected = Reflect(centroid, simplex[worstIdx]);
-                var reflectedError = EvaluateError(reflected, sourcePoints, targetPoints);
+                var reflectedError = errorFunction(reflected);
                 
                 if (reflectedError < errors[bestIdx])
                 {
                     // Expansion
                     var expanded = Expand(centroid, reflected);
-                    var expandedError = EvaluateError(expanded, sourcePoints, targetPoints);
+                    var expandedError = errorFunction(expanded);
                     
                     if (expandedError < reflectedError)
                     {
@@ -283,7 +371,7 @@ namespace Simplex3D
                         contracted = Contract(centroid, simplex[worstIdx]);
                     }
                     
-                    var contractedError = EvaluateError(contracted, sourcePoints, targetPoints);
+                    var contractedError = errorFunction(contracted);
                     
                     if (contractedError < Math.Min(reflectedError, errors[worstIdx]))
                     {
@@ -296,7 +384,7 @@ namespace Simplex3D
                         {
                             if (i != bestIdx)
                             {
-                                for (int j = 0; j < 6; j++)
+                                for (int j = 0; j < parameterCount; j++)
                                 {
                                     simplex[i][j] = simplex[bestIdx][j] + SIGMA * (simplex[i][j] - simplex[bestIdx][j]);
                                 }
@@ -311,33 +399,44 @@ namespace Simplex3D
             int finalBestIdx = 0;
             for (int i = 0; i < simplex.Length; i++)
             {
-                finalErrors[i] = EvaluateError(simplex[i], sourcePoints, targetPoints);
+                finalErrors[i] = errorFunction(simplex[i]);
                 if (finalErrors[i] < finalErrors[finalBestIdx]) finalBestIdx = i;
             }
             
-            return CreateResult(simplex[finalBestIdx], finalErrors[finalBestIdx], MAX_ITERATIONS);
+            return simplex[finalBestIdx];
         }
         
-        private double[][] InitializeSimplex()
+        public OptimizationResult OptimizeRegistration(List<Vector3> sourcePoints, List<Vector3> targetPoints)
         {
-            // Create 7 vertices for 6D parameter space (tx, ty, tz, rx, ry, rz)
-            var simplex = new double[7][];
-            var initialStep = 0.1;
+            // Define the error function for 3D registration with translation and rotation
+            ErrorFunction errorFunc = (parameters) => EvaluateRegistrationError(parameters, sourcePoints, targetPoints);
+            
+            // Optimize with 6 parameters: 3 translation + 3 rotation
+            var bestParams = Optimize(errorFunc, 6);
+            
+            // Create result object with iteration count
+            return CreateResult(bestParams, errorFunc(bestParams), MAX_ITERATIONS);
+        }
+        
+        private double[][] InitializeSimplex(int parameterCount, double initialStep)
+        {
+            // Create parameterCount+1 vertices for parameterCount-dimensional parameter space
+            var simplex = new double[parameterCount + 1][];
             
             // First vertex at origin
-            simplex[0] = new double[] { 0, 0, 0, 0, 0, 0 };
+            simplex[0] = new double[parameterCount];
             
             // Other vertices offset along each dimension
-            for (int i = 1; i < 7; i++)
+            for (int i = 1; i <= parameterCount; i++)
             {
-                simplex[i] = new double[6];
+                simplex[i] = new double[parameterCount];
                 simplex[i][i - 1] = initialStep;
             }
             
             return simplex;
         }
         
-        private double EvaluateError(double[] parameters, List<Vector3> sourcePoints, List<Vector3> targetPoints)
+        private double EvaluateRegistrationError(double[] parameters, List<Vector3> sourcePoints, List<Vector3> targetPoints)
         {
             var translation = new Vector3((float)parameters[0], (float)parameters[1], (float)parameters[2]);
             var rotation = CreateRotationMatrix((float)parameters[3], (float)parameters[4], (float)parameters[5]);
@@ -371,8 +470,8 @@ namespace Simplex3D
         
         private double[] Reflect(double[] centroid, double[] worst)
         {
-            var reflected = new double[6];
-            for (int i = 0; i < 6; i++)
+            var reflected = new double[centroid.Length];
+            for (int i = 0; i < centroid.Length; i++)
             {
                 reflected[i] = centroid[i] + ALPHA * (centroid[i] - worst[i]);
             }
@@ -381,8 +480,8 @@ namespace Simplex3D
         
         private double[] Expand(double[] centroid, double[] reflected)
         {
-            var expanded = new double[6];
-            for (int i = 0; i < 6; i++)
+            var expanded = new double[centroid.Length];
+            for (int i = 0; i < centroid.Length; i++)
             {
                 expanded[i] = centroid[i] + GAMMA * (reflected[i] - centroid[i]);
             }
@@ -391,8 +490,8 @@ namespace Simplex3D
         
         private double[] Contract(double[] centroid, double[] point)
         {
-            var contracted = new double[6];
-            for (int i = 0; i < 6; i++)
+            var contracted = new double[centroid.Length];
+            for (int i = 0; i < centroid.Length; i++)
             {
                 contracted[i] = centroid[i] + RHO * (point[i] - centroid[i]);
             }
