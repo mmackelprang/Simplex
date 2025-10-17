@@ -13,25 +13,26 @@ namespace Simplex3D
             Console.WriteLine("3D Simplex Optimization for Point Registration");
             Console.WriteLine("=============================================");
             
-            if (args.Length == 0)
+            if (args.Length < 2)
             {
-                Console.WriteLine("Usage: dotnet run <input_csv_file> [output_csv_file]");
-                Console.WriteLine("Example: dotnet run example1_input.csv example1_output.csv");
+                Console.WriteLine("Usage: dotnet run <source_input_file> <target_output_file> [results_csv_file]");
+                Console.WriteLine("Example: dotnet run example1.input example1.output example1_results.csv");
                 return;
             }
             
-            string inputFile = args[0];
-            string outputFile = args.Length > 1 ? args[1] : "output.csv";
+            string sourceFile = args[0];
+            string targetFile = args[1];
+            string resultsFile = args.Length > 2 ? args[2] : "output.csv";
             
             try
             {
-                // Load input points
-                var points = LoadPoints(inputFile);
-                Console.WriteLine($"Loaded {points.Count} point pairs from {inputFile}");
+                // Load input points from separate files
+                var points = LoadPointsFromSeparateFiles(sourceFile, targetFile);
+                Console.WriteLine($"Loaded {points.Count} point pairs from {sourceFile} and {targetFile}");
                 
                 // Perform 3D registration using Nelder-Mead simplex
-                var optimizer = new SimplexOptimizer();
-                var result = optimizer.OptimizeRegistration(points);
+                IOptimizationFunction optimizer = new SimplexOptimizer();
+                var result = optimizer.Optimize(points);
                 
                 // Display results
                 Console.WriteLine($"\nOptimization completed in {result.Iterations} iterations");
@@ -40,8 +41,8 @@ namespace Simplex3D
                 Console.WriteLine($"Rotation (Euler angles): ({result.RotationEuler.X:F3}, {result.RotationEuler.Y:F3}, {result.RotationEuler.Z:F3}) radians");
                 
                 // Apply transformation and save results
-                SaveResults(points, result, outputFile);
-                Console.WriteLine($"Results saved to {outputFile}");
+                SaveResults(points, result, resultsFile);
+                Console.WriteLine($"Results saved to {resultsFile}");
             }
             catch (Exception ex)
             {
@@ -49,25 +50,35 @@ namespace Simplex3D
             }
         }
         
-        static List<PointPair> LoadPoints(string filename)
+        static List<PointPair> LoadPointsFromSeparateFiles(string sourceFile, string targetFile)
         {
             var points = new List<PointPair>();
-            var lines = File.ReadAllLines(filename);
             
-            for (int i = 1; i < lines.Length; i++) // Skip header
+            var sourceLines = File.ReadAllLines(sourceFile);
+            var targetLines = File.ReadAllLines(targetFile);
+            
+            if (sourceLines.Length != targetLines.Length)
             {
-                var parts = lines[i].Split(',');
-                if (parts.Length >= 6)
+                throw new InvalidOperationException("Source and target files must have the same number of points");
+            }
+            
+            // Skip headers and process data
+            for (int i = 1; i < sourceLines.Length; i++)
+            {
+                var sourceParts = sourceLines[i].Split(',');
+                var targetParts = targetLines[i].Split(',');
+                
+                if (sourceParts.Length >= 3 && targetParts.Length >= 3)
                 {
                     var source = new Vector3(
-                        float.Parse(parts[0], CultureInfo.InvariantCulture),
-                        float.Parse(parts[1], CultureInfo.InvariantCulture),
-                        float.Parse(parts[2], CultureInfo.InvariantCulture)
+                        float.Parse(sourceParts[0], CultureInfo.InvariantCulture),
+                        float.Parse(sourceParts[1], CultureInfo.InvariantCulture),
+                        float.Parse(sourceParts[2], CultureInfo.InvariantCulture)
                     );
                     var target = new Vector3(
-                        float.Parse(parts[3], CultureInfo.InvariantCulture),
-                        float.Parse(parts[4], CultureInfo.InvariantCulture),
-                        float.Parse(parts[5], CultureInfo.InvariantCulture)
+                        float.Parse(targetParts[0], CultureInfo.InvariantCulture),
+                        float.Parse(targetParts[1], CultureInfo.InvariantCulture),
+                        float.Parse(targetParts[2], CultureInfo.InvariantCulture)
                     );
                     points.Add(new PointPair(source, target));
                 }
@@ -123,7 +134,21 @@ namespace Simplex3D
         }
     }
     
-    public class SimplexOptimizer
+    /// <summary>
+    /// Interface for optimization functions that can be used to find optimal transformations
+    /// between point sets. This allows easy swapping of different optimization algorithms.
+    /// </summary>
+    public interface IOptimizationFunction
+    {
+        /// <summary>
+        /// Optimizes the transformation parameters to align source points with target points.
+        /// </summary>
+        /// <param name="points">List of point pairs (source and target)</param>
+        /// <returns>Optimization result containing the transformation and error metrics</returns>
+        OptimizationResult Optimize(List<PointPair> points);
+    }
+    
+    public class SimplexOptimizer : IOptimizationFunction
     {
         private const double ALPHA = 1.0;    // Reflection coefficient
         private const double GAMMA = 2.0;    // Expansion coefficient
@@ -132,7 +157,7 @@ namespace Simplex3D
         private const double TOLERANCE = 1e-8;
         private const int MAX_ITERATIONS = 1000;
         
-        public OptimizationResult OptimizeRegistration(List<PointPair> points)
+        public OptimizationResult Optimize(List<PointPair> points)
         {
             // Initialize simplex with 7 vertices for 6D optimization (3 translation + 3 rotation)
             var simplex = InitializeSimplex();
