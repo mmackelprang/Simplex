@@ -43,4 +43,4 @@ mono_crash.*
 
 # Output files
 output.csv
-example*_output.csv
+*_results.csv
