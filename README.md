@@ -49,7 +49,7 @@ RMS_Error = sqrt(sum((||P_transformed_i - P_target_i||²)) / N)
 
 ## Requirements
 
-- .NET 6.0 or later
+- .NET 8.0 or later
 - System.Numerics (included in .NET)
 
 ## Building and Running
@@ -58,31 +58,42 @@ RMS_Error = sqrt(sum((||P_transformed_i - P_target_i||²)) / N)
 ```bash
 git clone https://github.com/mmackelprang/Simplex.git
 cd Simplex
-dotnet build
+dotnet build src/Simplex.csproj
 ```
 
 ### Run the Application
 ```bash
 # Basic usage
-dotnet run <input_csv_file> [output_csv_file]
+dotnet run --project src/Simplex.csproj <source_input_file> <target_output_file> [results_csv_file]
 
 # Examples
-dotnet run example1_input.csv example1_output.csv
-dotnet run example2_input.csv
-dotnet run example3_input.csv results.csv
+dotnet run --project src/Simplex.csproj example1.input example1.output example1_results.csv
+dotnet run --project src/Simplex.csproj example2.input example2.output
+dotnet run --project src/Simplex.csproj example3.input example3.output results.csv
 ```
 
 ## Input File Format
 
-CSV file with header and 6 columns per row:
+The application now uses separate input files for source and target points:
+
+**Source Input File** (e.g., `example1.input`):
 ```csv
-source_x,source_y,source_z,target_x,target_y,target_z
-1.0,2.0,3.0,1.1,2.1,3.1
-4.0,5.0,6.0,4.2,5.2,6.2
+x,y,z
+0.0,0.0,0.0
+1.0,0.0,0.0
+...
+```
+
+**Target Output File** (e.g., `example1.output`):
+```csv
+x,y,z
+1.0,2.0,3.0
+2.0,2.0,3.0
 ...
 ```
 
 **Requirements:**
+- Both files must have the same number of points
 - Minimum 3 non-colinear point pairs for unique solution
 - More points generally provide better accuracy
 - Points should be well-distributed in 3D space
@@ -92,7 +103,7 @@ source_x,source_y,source_z,target_x,target_y,target_z
 CSV file with optimization results:
 ```csv
 source_x,source_y,source_z,target_x,target_y,target_z,transformed_x,transformed_y,transformed_z,error
-1.0,2.0,3.0,1.1,2.1,3.1,1.098,2.099,3.102,0.003
+0.000000,0.000000,0.000000,1.000000,2.000000,3.000000,1.000000,2.000000,3.000000,0.000000
 ...
 ```
 
@@ -105,19 +116,19 @@ source_x,source_y,source_z,target_x,target_y,target_z,transformed_x,transformed_
 ## Example Usage Scenarios
 
 ### Example 1: Simple Translation
-**File:** `example1_input.csv`
+**Files:** `example1.input` and `example1.output`
 - Simple translation offset with minimal rotation
 - Demonstrates basic functionality
 - Expected result: Pure translation with near-zero rotation
 
 ### Example 2: Complex Transformation
-**File:** `example2_input.csv`
+**Files:** `example2.input` and `example2.output`
 - Combined translation and rotation
 - More challenging optimization problem
 - Tests algorithm robustness
 
 ### Example 3: Real-world Data
-**File:** `example3_input.csv`
+**Files:** `example3.input` and `example3.output`
 - Realistic point cloud with noise
 - Demonstrates practical application
 - Shows convergence with imperfect data
@@ -188,18 +199,47 @@ The Nelder-Mead simplex method was developed by John Nelder and Roger Mead in 19
 - Simple to implement and understand
 - Good empirical performance for many problems
 
+## Architecture and Extensibility
+
+The project now uses an interface-based design to support different optimization algorithms:
+
+### IOptimizationFunction Interface
+
+```csharp
+public interface IOptimizationFunction
+{
+    OptimizationResult Optimize(List<PointPair> points);
+}
+```
+
+This interface allows easy swapping of optimization algorithms. The current implementation uses the Nelder-Mead Simplex method, but you can easily create alternative implementations (e.g., Particle Swarm Optimization, Genetic Algorithms, Gradient Descent) by implementing this interface.
+
+**Example of using a different optimizer:**
+```csharp
+// Use the Nelder-Mead simplex optimizer
+IOptimizationFunction optimizer = new SimplexOptimizer();
+
+// Or create and use a different optimizer
+// IOptimizationFunction optimizer = new MyCustomOptimizer();
+
+var result = optimizer.Optimize(points);
+```
+
 ## File Structure
 
 ```
 Simplex/
 ├── README.md              # This documentation
-├── Program.cs             # Main application with all classes
-├── example1_input.csv     # Simple translation example
-├── example1_output.csv    # Expected output for example 1
-├── example2_input.csv     # Complex transformation example
-├── example2_output.csv    # Expected output for example 2
-├── example3_input.csv     # Real-world noisy data example
-└── example3_output.csv    # Expected output for example 3
+├── .gitignore             # Git ignore file for build artifacts
+├── src/                   # Source code directory
+│   ├── Simplex.csproj     # .NET project file
+│   └── Program.cs         # Main application with all classes
+├── example1.input         # Simple translation example - source points
+├── example1.output        # Simple translation example - target points
+├── example2.input         # Complex transformation example - source points
+├── example2.output        # Complex transformation example - target points
+├── example3.input         # Real-world noisy data example - source points
+└── example3.output        # Real-world noisy data example - target points
 ```
 
 ## Contributing
