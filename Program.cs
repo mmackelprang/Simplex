@@ -190,6 +190,7 @@ namespace Simplex3D
     public static class FittingHelpers
     {
         // Fit X,Y data to a linear function: y = a*x + b
+        // Returns [slope, intercept] that minimize RMS error
         public static double[] FitLinear(List<(double x, double y)> data)
         {
             var optimizer = new SimplexOptimizer();
@@ -206,13 +207,14 @@ namespace Simplex3D
                     double error = predicted - point.y;
                     totalError += error * error;
                 }
-                return Math.Sqrt(totalError / data.Count);
+                return Math.Sqrt(totalError / data.Count);  // RMS error
             };
             
             return optimizer.Optimize(errorFunc, 2);  // 2 parameters: slope and intercept
         }
         
         // Fit X,Y data to a polynomial: y = a0 + a1*x + a2*x^2 + ... + an*x^n
+        // Returns [a0, a1, a2, ..., an] that minimize RMS error
         public static double[] FitPolynomial(List<(double x, double y)> data, int polynomialOrder)
         {
             var optimizer = new SimplexOptimizer();
@@ -230,13 +232,14 @@ namespace Simplex3D
                     double error = predicted - point.y;
                     totalError += error * error;
                 }
-                return Math.Sqrt(totalError / data.Count);
+                return Math.Sqrt(totalError / data.Count);  // RMS error
             };
             
             return optimizer.Optimize(errorFunc, polynomialOrder + 1);  // n+1 parameters for nth order polynomial
         }
         
         // Fit 3D points with translation only (no rotation)
+        // Returns translation vector that minimizes RMS error to nearest target points
         public static Vector3 FitTranslationOnly(List<Vector3> sourcePoints, List<Vector3> targetPoints)
         {
             var optimizer = new SimplexOptimizer();
@@ -263,7 +266,7 @@ namespace Simplex3D
                     
                     totalError += minDistance * minDistance;
                 }
-                return Math.Sqrt(totalError / sourcePoints.Count);
+                return Math.Sqrt(totalError / sourcePoints.Count);  // RMS error
             };
             
             var result = optimizer.Optimize(errorFunc, 3);  // 3 parameters: tx, ty, tz
@@ -409,13 +412,18 @@ namespace Simplex3D
         public OptimizationResult OptimizeRegistration(List<Vector3> sourcePoints, List<Vector3> targetPoints)
         {
             // Define the error function for 3D registration with translation and rotation
-            ErrorFunction errorFunc = (parameters) => EvaluateRegistrationError(parameters, sourcePoints, targetPoints);
+            double finalError = 0;
+            ErrorFunction errorFunc = (parameters) => 
+            {
+                finalError = EvaluateRegistrationError(parameters, sourcePoints, targetPoints);
+                return finalError;
+            };
             
             // Optimize with 6 parameters: 3 translation + 3 rotation
             var bestParams = Optimize(errorFunc, 6);
             
-            // Create result object with iteration count
-            return CreateResult(bestParams, errorFunc(bestParams), MAX_ITERATIONS);
+            // Create result object with iteration count (use cached final error)
+            return CreateResult(bestParams, finalError, MAX_ITERATIONS);
         }
         
         private double[][] InitializeSimplex(int parameterCount, double initialStep)

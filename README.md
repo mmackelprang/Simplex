@@ -109,7 +109,7 @@ Helper methods are provided in `FittingHelpers` class for common scenarios:
 
 ## Requirements
 
-- .NET 6.0 or later (or .NET 8.0+)
+- .NET 6.0 or later
 - System.Numerics (included in .NET)
 
 ## Building and Running
