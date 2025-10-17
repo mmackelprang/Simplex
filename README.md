@@ -42,10 +42,16 @@ P_transformed = R(Rx, Ry, Rz) * P_source + T(Tx, Ty, Tz)
 ```
 
 **Error Function:**
-Root Mean Square (RMS) distance between transformed source points and target points:
+Root Mean Square (RMS) distance between transformed source points and their nearest target points:
 ```
-RMS_Error = sqrt(sum((||P_transformed_i - P_target_i||²)) / N)
+RMS_Error = sqrt(sum((min_j ||P_transformed_i - P_target_j||²)) / N)
 ```
+
+**Nearest Neighbor Matching:**
+When source and target point counts differ, each transformed source point is matched to its nearest target point during optimization. This allows the algorithm to handle:
+- More target points than source points (over-determined system)
+- More source points than target points (under-determined system)
+- Any arbitrary combination of point counts
 
 ## Requirements
 
@@ -62,8 +68,12 @@ dotnet build
 ```
 
 ### Run the Application
+
+The application supports two input modes:
+
+#### Mode 1: Paired Points (Single File)
 ```bash
-# Basic usage
+# Basic usage with paired points in one file
 dotnet run <input_csv_file> [output_csv_file]
 
 # Examples
@@ -72,8 +82,18 @@ dotnet run example2_input.csv
 dotnet run example3_input.csv results.csv
 ```
 
+#### Mode 2: Separate Source and Target Files
+```bash
+# Usage with separate source and target files
+dotnet run <source_csv_file> <target_csv_file> <output_csv_file>
+
+# Example with different point counts
+dotnet run source_points.csv target_points.csv output.csv
+```
+
 ## Input File Format
 
+### Paired Points Format (Single File)
 CSV file with header and 6 columns per row:
 ```csv
 source_x,source_y,source_z,target_x,target_y,target_z
@@ -82,8 +102,28 @@ source_x,source_y,source_z,target_x,target_y,target_z
 ...
 ```
 
-**Requirements:**
-- Minimum 3 non-colinear point pairs for unique solution
+### Separate Files Format
+Source points file (3 columns):
+```csv
+x,y,z
+1.0,2.0,3.0
+4.0,5.0,6.0
+...
+```
+
+Target points file (3 columns):
+```csv
+x,y,z
+1.1,2.1,3.1
+4.2,5.2,6.2
+7.3,8.3,9.3
+...
+```
+
+**Key Features:**
+- **Flexible Point Counts**: Source and target point sets can have different sizes
+- **Nearest Neighbor Matching**: When using separate files, the algorithm automatically matches each transformed source point to its nearest target point
+- Minimum 3 non-colinear source points recommended for unique solution
 - More points generally provide better accuracy
 - Points should be well-distributed in 3D space
 
@@ -91,16 +131,16 @@ source_x,source_y,source_z,target_x,target_y,target_z
 
 CSV file with optimization results:
 ```csv
-source_x,source_y,source_z,target_x,target_y,target_z,transformed_x,transformed_y,transformed_z,error
-1.0,2.0,3.0,1.1,2.1,3.1,1.098,2.099,3.102,0.003
+source_x,source_y,source_z,transformed_x,transformed_y,transformed_z,nearest_target_x,nearest_target_y,nearest_target_z,error
+1.0,2.0,3.0,1.098,2.099,3.102,1.100,2.100,3.100,0.003
 ...
 ```
 
 **Columns:**
 - `source_*`: Original source points
-- `target_*`: Target points to align to
 - `transformed_*`: Source points after applying optimal transformation
-- `error`: Point-wise distance error after transformation
+- `nearest_target_*`: Nearest target point to the transformed source point
+- `error`: Point-wise distance error to nearest target after transformation
 
 ## Example Usage Scenarios
 
