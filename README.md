@@ -1,22 +1,23 @@
-# 3D Simplex Optimization for Point Registration
+# Flexible Simplex Optimization Framework
 
-A modern C# implementation of the Nelder-Mead Simplex algorithm for 3D point registration, solving for optimal translation and rotation parameters to align two sets of 3D points.
+A modern C# implementation of the Nelder-Mead Simplex algorithm with a flexible interface that supports various optimization scenarios, from 3D point registration to polynomial curve fitting.
 
 ## Overview
 
-This application implements the Nelder-Mead Simplex optimization method to find the best-fit rigid body transformation (translation + rotation) between two sets of corresponding 3D points. It's particularly useful for:
+This application implements the Nelder-Mead Simplex optimization method with a flexible, delegate-based error function interface. The core optimizer can be used for:
 
-- Point cloud registration
-- Computer vision applications
-- Robotics calibration
-- Medical imaging alignment
-- CAD/CAM applications
+- **3D Point Cloud Registration** - Translation and rotation alignment
+- **2D Curve Fitting** - Linear, quadratic, or polynomial functions
+- **Translation-Only Fitting** - 3D alignment without rotation
+- **Custom Optimization Problems** - Any parametric optimization task
+
+The key feature is a flexible `ErrorFunction` delegate that accepts any number of parameters, making the optimizer adaptable to different problem types.
 
 ## Algorithm Logic
 
 ### Nelder-Mead Simplex Method
 
-The Nelder-Mead algorithm is a derivative-free optimization method that works by maintaining a simplex (a geometric shape with n+1 vertices in n-dimensional space). For our 6-parameter optimization problem (3 translation + 3 rotation), we use a 7-vertex simplex in 6D space.
+The Nelder-Mead algorithm is a derivative-free optimization method that works by maintaining a simplex (a geometric shape with n+1 vertices in n-dimensional space). The algorithm automatically adjusts to the parameter count - for a 6-parameter problem (3 translation + 3 rotation), it uses a 7-vertex simplex in 6D space; for a 2-parameter linear fit, it uses a 3-vertex simplex in 2D space.
 
 **Key Operations:**
 1. **Reflection**: Reflect the worst point through the centroid
@@ -42,10 +43,69 @@ P_transformed = R(Rx, Ry, Rz) * P_source + T(Tx, Ty, Tz)
 ```
 
 **Error Function:**
-Root Mean Square (RMS) distance between transformed source points and target points:
+Root Mean Square (RMS) distance between transformed source points and their nearest target points:
 ```
-RMS_Error = sqrt(sum((||P_transformed_i - P_target_i||²)) / N)
+RMS_Error = sqrt(sum((min_j ||P_transformed_i - P_target_j||²)) / N)
 ```
+
+**Nearest Neighbor Matching:**
+When source and target point counts differ, each transformed source point is matched to its nearest target point during optimization. This allows the algorithm to handle:
+- More target points than source points (over-determined system)
+- More source points than target points (under-determined system)
+- Any arbitrary combination of point counts
+
+## Flexible Interface
+
+The optimizer uses a flexible `ErrorFunction` delegate interface that makes no assumptions about the problem being solved:
+
+```csharp
+public delegate double ErrorFunction(double[] parameters);
+```
+
+This allows the same optimizer to handle:
+
+### 1. 3D Registration (Translation + Rotation)
+6 parameters: `[tx, ty, tz, rx, ry, rz]`
+
+### 2. Linear Function Fitting
+2 parameters: `[slope, intercept]` for `y = a*x + b`
+
+### 3. Polynomial Fitting
+n+1 parameters for nth order polynomial: `[a0, a1, a2, ..., an]` for `y = a0 + a1*x + a2*x^2 + ... + an*x^n`
+
+### 4. Translation-Only Fitting
+3 parameters: `[tx, ty, tz]` for 3D alignment without rotation
+
+### Example Usage
+
+```csharp
+// Example: Fit linear function to 2D data
+var optimizer = new SimplexOptimizer();
+var data = new List<(double x, double y)> { (1, 2), (2, 4), (3, 6) };
+
+ErrorFunction errorFunc = (parameters) =>
+{
+    double slope = parameters[0];
+    double intercept = parameters[1];
+    
+    double totalError = 0;
+    foreach (var point in data)
+    {
+        double predicted = slope * point.x + intercept;
+        double error = predicted - point.y;
+        totalError += error * error;
+    }
+    return Math.Sqrt(totalError / data.Count);
+};
+
+var result = optimizer.Optimize(errorFunc, 2);  // 2 parameters
+Console.WriteLine($"Linear fit: y = {result[0]:F3}*x + {result[1]:F3}");
+```
+
+Helper methods are provided in `FittingHelpers` class for common scenarios:
+- `FitLinear()` - Linear function fitting
+- `FitPolynomial()` - Polynomial of any order
+- `FitTranslationOnly()` - 3D translation without rotation
 
 ## Requirements
 
@@ -62,9 +122,13 @@ dotnet build src/Simplex.csproj
 ```
 
 ### Run the Application
+
+The application supports two input modes:
+
+#### Mode 1: Paired Points (Single File)
 ```bash
-# Basic usage
-dotnet run --project src/Simplex.csproj <source_input_file> <target_output_file> [results_csv_file]
+# Basic usage with paired points in one file
+dotnet run <input_csv_file> [output_csv_file]
 
 # Examples
 dotnet run --project src/Simplex.csproj example1.input example1.output example1_results.csv
@@ -72,19 +136,19 @@ dotnet run --project src/Simplex.csproj example2.input example2.output
 dotnet run --project src/Simplex.csproj example3.input example3.output results.csv
 ```
 
-## Input File Format
+#### Mode 2: Separate Source and Target Files
+```bash
+# Usage with separate source and target files
+dotnet run <source_csv_file> <target_csv_file> <output_csv_file>
 
-The application now uses separate input files for source and target points:
-
-**Source Input File** (e.g., `example1.input`):
-```csv
-x,y,z
-0.0,0.0,0.0
-1.0,0.0,0.0
-...
+# Example with different point counts
+dotnet run source_points.csv target_points.csv output.csv
 ```
 
-**Target Output File** (e.g., `example1.output`):
+## Input File Format
+
+### Paired Points Format (Single File)
+CSV file with header and 6 columns per row:
 ```csv
 x,y,z
 1.0,2.0,3.0
@@ -92,9 +156,28 @@ x,y,z
 ...
 ```
 
-**Requirements:**
-- Both files must have the same number of points
-- Minimum 3 non-colinear point pairs for unique solution
+### Separate Files Format
+Source points file (3 columns):
+```csv
+x,y,z
+1.0,2.0,3.0
+4.0,5.0,6.0
+...
+```
+
+Target points file (3 columns):
+```csv
+x,y,z
+1.1,2.1,3.1
+4.2,5.2,6.2
+7.3,8.3,9.3
+...
+```
+
+**Key Features:**
+- **Flexible Point Counts**: Source and target point sets can have different sizes
+- **Nearest Neighbor Matching**: When using separate files, the algorithm automatically matches each transformed source point to its nearest target point
+- Minimum 3 non-colinear source points recommended for unique solution
 - More points generally provide better accuracy
 - Points should be well-distributed in 3D space
 
@@ -102,16 +185,16 @@ x,y,z
 
 CSV file with optimization results:
 ```csv
-source_x,source_y,source_z,target_x,target_y,target_z,transformed_x,transformed_y,transformed_z,error
-0.000000,0.000000,0.000000,1.000000,2.000000,3.000000,1.000000,2.000000,3.000000,0.000000
+source_x,source_y,source_z,transformed_x,transformed_y,transformed_z,nearest_target_x,nearest_target_y,nearest_target_z,error
+1.0,2.0,3.0,1.098,2.099,3.102,1.100,2.100,3.100,0.003
 ...
 ```
 
 **Columns:**
 - `source_*`: Original source points
-- `target_*`: Target points to align to
 - `transformed_*`: Source points after applying optimal transformation
-- `error`: Point-wise distance error after transformation
+- `nearest_target_*`: Nearest target point to the transformed source point
+- `error`: Point-wise distance error to nearest target after transformation
 
 ## Example Usage Scenarios
 
