@@ -13,7 +13,7 @@ namespace Simplex3D
             Console.WriteLine("3D Simplex Optimization for Point Registration");
             Console.WriteLine("=============================================");
             
-            if (args.Length == 0)
+            if (args.Length < 2)
             {
                 Console.WriteLine("Usage: dotnet run <input_csv_file> [target_csv_file] [output_csv_file]");
                 Console.WriteLine("Example 1 (paired points): dotnet run example1_input.csv example1_output.csv");
@@ -77,22 +77,32 @@ namespace Simplex3D
         static List<PointPair> LoadPairedPoints(string filename)
         {
             var points = new List<PointPair>();
-            var lines = File.ReadAllLines(filename);
             
-            for (int i = 1; i < lines.Length; i++) // Skip header
+            var sourceLines = File.ReadAllLines(sourceFile);
+            var targetLines = File.ReadAllLines(targetFile);
+            
+            if (sourceLines.Length != targetLines.Length)
             {
-                var parts = lines[i].Split(',');
-                if (parts.Length >= 6)
+                throw new InvalidOperationException("Source and target files must have the same number of points");
+            }
+            
+            // Skip headers and process data
+            for (int i = 1; i < sourceLines.Length; i++)
+            {
+                var sourceParts = sourceLines[i].Split(',');
+                var targetParts = targetLines[i].Split(',');
+                
+                if (sourceParts.Length >= 3 && targetParts.Length >= 3)
                 {
                     var source = new Vector3(
-                        float.Parse(parts[0], CultureInfo.InvariantCulture),
-                        float.Parse(parts[1], CultureInfo.InvariantCulture),
-                        float.Parse(parts[2], CultureInfo.InvariantCulture)
+                        float.Parse(sourceParts[0], CultureInfo.InvariantCulture),
+                        float.Parse(sourceParts[1], CultureInfo.InvariantCulture),
+                        float.Parse(sourceParts[2], CultureInfo.InvariantCulture)
                     );
                     var target = new Vector3(
-                        float.Parse(parts[3], CultureInfo.InvariantCulture),
-                        float.Parse(parts[4], CultureInfo.InvariantCulture),
-                        float.Parse(parts[5], CultureInfo.InvariantCulture)
+                        float.Parse(targetParts[0], CultureInfo.InvariantCulture),
+                        float.Parse(targetParts[1], CultureInfo.InvariantCulture),
+                        float.Parse(targetParts[2], CultureInfo.InvariantCulture)
                     );
                     points.Add(new PointPair(source, target));
                 }
